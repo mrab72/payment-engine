@@ -2,6 +2,7 @@ pub mod account;
 pub mod transaction;
 pub mod payment_engine;
 use rust_decimal::Decimal;
+use transaction::{TxId};
 use thiserror::Error;
 pub type Amount = Decimal;
 
@@ -14,10 +15,12 @@ pub enum PaymentsError {
     InsufficientFunds,
     #[error("Transaction not found")]
     TransactionNotFound,
-    #[error("Transaction already disputed")]
-    TransactionAlreadyDisputed,
+    #[error("Transaction already disputed: {0}")]
+    TransactionAlreadyDisputed(TxId),
     #[error("Transaction is not under dispute")]
     TransactionNotDisputed,
     #[error("Client ID mismatch")]
     ClientIdMismatch,
+    #[error("Invalid transaction: {0}")]
+    InvalidTransaction(String),
 }

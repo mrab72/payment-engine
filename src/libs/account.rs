@@ -1,5 +1,5 @@
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::{Amount, PaymentsError};
 
@@ -8,7 +8,7 @@ pub type ClientId = u16;
 
 /// Represents a client's account with available, held, and total funds, as well as a locked status.
 /// 
-#[derive(Debug, Clone, Deserialize)] 
+#[derive(Debug, Clone, Deserialize, Serialize)] 
 pub struct Account {
     /// Unique identifier for the client.
     pub client: ClientId,
