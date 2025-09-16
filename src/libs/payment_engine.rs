@@ -5,9 +5,15 @@ use serde::Deserialize;
 use super::account::{Account, ClientId};
 use super::transaction::{TxId, StoredTransaction};
 
+/// Core payment engine struct that manages client accounts and transactions.
+/// It supports processing various transaction types including deposits, withdrawals, disputes, resolutions, and chargebacks.
+/// It maintains a mapping of client IDs to their respective accounts and a record of all transactions processed.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PaymentsEngine {
+    /// Mapping of client IDs to their accounts.
     accounts: HashMap<ClientId, Account>,
+
+    /// Record of all transactions processed, keyed by transaction ID.
     transactions: HashMap<TxId, StoredTransaction>,
 }
 
@@ -206,6 +212,10 @@ impl PaymentsEngine {
         wtr.flush()?;
         log::info!("Successfully wrote accounts to CSV");
         Ok(())
+    }
+
+    pub fn get_accounts(&self) -> Vec<&Account> {
+        self.accounts.values().collect()
     }
 }
 
