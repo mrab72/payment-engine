@@ -107,7 +107,8 @@ impl ConcurrentEngine {
     }
 
     // Process transactions from reader using concurrent worker threads
-    /// This version batches transactions and distributes them across multiple threads
+    /// This version assigns transactions to workers based on client ID to avoid race conditions
+    /// All transactions for the same client are processed by the same worker thread
     pub fn process_transactions_from_reader<R: Read>(
         &mut self,
         reader: R,
@@ -116,36 +117,33 @@ impl ConcurrentEngine {
             .map(|n| n.get())
             .unwrap_or(4);
 
-        let (tx, rx) = mpsc::channel::<Transaction>();
-        let rx = Arc::new(Mutex::new(rx));
+        // Create separate channels for each worker
+        let mut worker_senders = Vec::new();
+        let mut worker_receivers = Vec::new();
+        for _ in 0..num_workers {
+            let (tx, rx) = mpsc::channel::<Transaction>();
+            worker_senders.push(tx);
+            worker_receivers.push(rx);
+        }
 
         log::debug!(
-            "Starting concurrent transaction processing with {} workers",
+            "Starting concurrent transaction processing with {} workers (client-based assignment)",
             num_workers
         );
 
         let mut handles = Vec::new();
         for worker_id in 0..num_workers {
             let engine = self.engine.clone();
-            let rx = rx.clone();
+            let rx = worker_receivers.remove(0);
 
             let handle = thread::spawn(
                 move || -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
                     let mut processed_count = 0;
 
                     loop {
-                        let transaction = {
-                            let rx_guard = rx.lock().map_err(|e| {
-                                format!(
-                                    "Worker {}: Failed to acquire receiver lock: {}",
-                                    worker_id, e
-                                )
-                            })?;
-
-                            match rx_guard.recv() {
-                                Ok(tx) => tx,
-                                Err(_) => break,
-                            }
+                        let transaction = match rx.recv() {
+                            Ok(tx) => tx,
+                            Err(_) => break,
                         };
 
                         // Process the transaction
@@ -191,7 +189,7 @@ impl ConcurrentEngine {
             handles.push(handle);
         }
 
-        // Read and send transactions to workers
+        // Read and send transactions to workers based on client ID
         let mut rdr = csv::ReaderBuilder::new()
             .trim(csv::Trim::All)
             .from_reader(reader);
@@ -206,15 +204,21 @@ impl ConcurrentEngine {
                 }
             };
 
-            if let Err(e) = tx.send(transaction) {
-                log::error!("Failed to send transaction to workers: {}", e);
+            // Assign transaction to worker based on client ID
+            let worker_id = (transaction.client as usize) % num_workers;
+            let tx_sender = &worker_senders[worker_id];
+
+            if let Err(e) = tx_sender.send(transaction) {
+                log::error!("Failed to send transaction to worker {}: {}", worker_id, e);
                 break;
             }
             sent_count += 1;
         }
 
-        // Close the channel to signal workers to stop
-        drop(tx);
+        // Close all channels to signal workers to stop
+        for tx in worker_senders {
+            drop(tx);
+        }
 
         log::info!("Sent {} transactions to workers", sent_count);
 
