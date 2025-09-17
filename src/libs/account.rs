@@ -75,6 +75,9 @@ impl Account {
     /// Places a hold on the specified amount, moving it from available to held funds.
     /// Returns an error if the account is locked or if there are insufficient available funds.
     pub fn hold(&mut self, amount: Amount) -> Result<(), PaymentsError> {
+        if self.locked {
+            return Err(PaymentsError::AccountFrozen);
+        }
         if self.available < amount {
             return Err(PaymentsError::InsufficientFunds);
         }
@@ -85,12 +88,18 @@ impl Account {
 
     /// Releases a hold on the specified amount, moving it from held to available funds.
     pub fn release(&mut self, amount: Amount) -> Result<(), PaymentsError> {
+        if self.held < amount {
+            return Err(PaymentsError::InsufficientFunds);
+        }
         self.held -= amount;
         self.available += amount;
         Ok(())
     }
 
     pub fn chargeback(&mut self, amount: Amount) -> Result<(), PaymentsError> {
+        if self.held < amount {
+            return Err(PaymentsError::InsufficientFunds);
+        }
         self.held -= amount;
         self.total -= amount;
         self.locked = true;

@@ -28,7 +28,7 @@ struct Args {
     log_level: Option<String>,
 }
 
-fn init_logger(log_level: &str) -> () {
+fn init_logger(log_level: &str) {
     let level = match log_level.to_lowercase().as_str() {
         "error" => log::LevelFilter::Error,
         "warn" => log::LevelFilter::Warn,
@@ -57,7 +57,7 @@ fn main() {
         log::error!("Input file does not exist: {:?}", input_path);
         std::process::exit(1);
     }
-    if !input_path.extension().map_or(false, |ext| ext == "csv") {
+    if input_path.extension().is_none_or(|ext| ext != "csv") {
         log::error!("Input file is not a CSV file: {:?}", input_path);
         std::process::exit(1);
     }
@@ -79,9 +79,10 @@ fn main() {
         });
         log::info!("Accounts written to {:?}", path);
     } else {
-        engine.get_accounts().iter().for_each(|account| {
-            log::info!("{account}");
+        let writer = std::io::stdout();
+        engine.write_accounts_csv(writer).unwrap_or_else(|e| {
+            log::error!("Failed to write accounts to stdout: {}", e);
+            std::process::exit(1);
         });
     }
-
 }

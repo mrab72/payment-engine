@@ -8,7 +8,7 @@ use super::transaction::{TxId, StoredTransaction};
 /// Core payment engine struct that manages client accounts and transactions.
 /// It supports processing various transaction types including deposits, withdrawals, disputes, resolutions, and chargebacks.
 /// It maintains a mapping of client IDs to their respective accounts and a record of all transactions processed.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct PaymentsEngine {
     /// Mapping of client IDs to their accounts.
     accounts: HashMap<ClientId, Account>,
@@ -18,14 +18,6 @@ pub struct PaymentsEngine {
 }
 
 
-impl Default for PaymentsEngine {
-    fn default() -> Self {
-        Self {
-            accounts: HashMap::new(),
-            transactions: HashMap::new(),
-        }
-    }
-}
 
 impl PaymentsEngine {
     pub fn new() -> Self {
@@ -48,9 +40,9 @@ impl PaymentsEngine {
     }
 
     fn process_deposit(&mut self, transaction: &super::transaction::Transaction) -> Result<(), super::PaymentsError> {
-        let amount = transaction.amount.ok_or_else(|| super::PaymentsError::TransactionNotFound)?;
+        let amount = transaction.amount.ok_or(super::PaymentsError::InvalidTransaction("Deposit transaction must have an amount".to_string()))?;
         if amount <= Decimal::ZERO {
-            return Err(super::PaymentsError::InvalidTransaction("Withdrawal amount must be positive".to_string()));
+            return Err(super::PaymentsError::InvalidTransaction("Deposit amount must be positive".to_string()));
         }
         if self.transactions.contains_key(&transaction.tx) {
             return Err(super::PaymentsError::InvalidTransaction(format!("Transaction ID {} already exists", transaction.tx)));
@@ -69,11 +61,7 @@ impl PaymentsEngine {
     }
 
     fn process_withdrawal(&mut self, transaction: &super::transaction::Transaction) -> Result<(), super::PaymentsError> {
-        if transaction.amount.is_none() {
-            return Err(super::PaymentsError::TransactionNotFound);
-        }
-
-        let amount = transaction.amount.ok_or_else(|| super::PaymentsError::TransactionNotFound)?;
+        let amount = transaction.amount.ok_or(super::PaymentsError::InvalidTransaction("Withdrawal transaction must have an amount".to_string()))?;
         if amount <= Decimal::ZERO {
             return Err(super::PaymentsError::InvalidTransaction("Withdrawal amount must be positive".to_string()));
         }
@@ -203,7 +191,7 @@ impl PaymentsEngine {
             .has_headers(true)
             .from_writer(writer);
 
-        wtr.write_record(&["client", "available", "held", "total", "locked"])?;
+        wtr.write_record(["client", "available", "held", "total", "locked"])?;
         
         for account in self.accounts.values() {
             wtr.serialize(account)?;
@@ -221,5 +209,128 @@ impl PaymentsEngine {
 
 #[cfg(test)]
 mod tests {
-    
+    use super::*;
+    use crate::libs::PaymentsError;
+    use crate::libs::transaction;
+
+    #[test]
+    fn test_deposit() {
+        let mut engine = PaymentsEngine::new();
+        let tx = transaction::Transaction {
+            tx_type: transaction::TransactionType::Deposit,
+            client: 1,
+            tx: 1,
+            amount: Some(Decimal::new(1000, 2)), // 10.00
+        };
+        engine.process_transaction(&tx).unwrap();
+        let account = engine.get_or_create_account(1);
+        assert_eq!(account.available, Decimal::new(1000, 2));
+        assert_eq!(account.total, Decimal::new(1000, 2));
+        assert!(!account.locked);
+    }
+
+    #[test]
+    fn test_withdrawal() {
+        let mut engine = PaymentsEngine::new();
+        let deposit_tx = transaction::Transaction {
+            tx_type: transaction::TransactionType::Deposit,
+            client: 1,
+            tx: 1,
+            amount: Some(Decimal::new(1000, 2)),
+        };
+        engine.process_transaction(&deposit_tx).unwrap();
+        let withdrawal_tx = transaction::Transaction {
+            tx_type: transaction::TransactionType::Withdrawal,
+            client: 1,
+            tx: 2,
+            amount: Some(Decimal::new(500, 2)),
+        };
+        engine.process_transaction(&withdrawal_tx).unwrap();
+        let account = engine.get_or_create_account(1);
+        assert_eq!(account.available, Decimal::new(500, 2));
+        assert_eq!(account.total, Decimal::new(500, 2));
+        assert!(!account.locked);
+    }
+
+    #[test]
+    fn test_dispute_resolve() {
+        let mut engine = PaymentsEngine::new();
+        let deposit_tx = transaction::Transaction {
+            tx_type: transaction::TransactionType::Deposit,
+            client: 1,
+            tx: 1,
+            amount: Some(Decimal::new(1000, 2)),
+        };
+        engine.process_transaction(&deposit_tx).unwrap();
+        let dispute_tx = transaction::Transaction {
+            tx_type: transaction::TransactionType::Dispute,
+            client: 1,
+            tx: 1,
+            amount: None,
+        };
+        engine.process_transaction(&dispute_tx).unwrap();
+        let account = engine.get_or_create_account(1);
+        assert_eq!(account.available, Decimal::new(0, 2));
+        assert_eq!(account.held, Decimal::new(1000, 2));
+        assert_eq!(account.total, Decimal::new(1000, 2));
+        assert!(!account.locked);
+        let resolve_tx = transaction::Transaction {
+            tx_type: transaction::TransactionType::Resolve,
+            client: 1,
+            tx: 1,
+            amount: None,
+        };
+        engine.process_transaction(&resolve_tx).unwrap();
+        let account = engine.get_or_create_account(1);
+        assert_eq!(account.available, Decimal::new(1000, 2));
+        assert_eq!(account.held, Decimal::new(0, 2));
+        assert_eq!(account.total, Decimal::new(1000, 2));
+        assert!(!account.locked);
+    }
+
+    #[test]
+    fn test_chargeback() {
+        let mut engine = PaymentsEngine::new();
+        let deposit_tx = transaction::Transaction {
+            tx_type: transaction::TransactionType::Deposit,
+            client: 1,
+            tx: 1,
+            amount: Some(Decimal::new(1000, 2)),
+        };
+        engine.process_transaction(&deposit_tx).unwrap();
+        let dispute_tx = transaction::Transaction {
+            tx_type: transaction::TransactionType::Dispute,
+            client: 1,
+            tx: 1,
+            amount: None,
+        };
+        engine.process_transaction(&dispute_tx).unwrap();
+        let chargeback_tx = transaction::Transaction {
+            tx_type: transaction::TransactionType::Chargeback,
+            client: 1,
+            tx: 1,
+            amount: None,
+        };
+        engine.process_transaction(&chargeback_tx).unwrap();
+        let account = engine.get_or_create_account(1);
+        assert_eq!(account.available, Decimal::new(0, 2));
+        assert_eq!(account.held, Decimal::new(0, 2));
+        assert_eq!(account.total, Decimal::new(0, 2));
+        assert!(account.locked);
+    }
+
+    #[test]
+    fn test_insufficient_funds() {
+        let mut engine = PaymentsEngine::new();
+        
+        let withdrawal_tx = transaction::Transaction {
+            tx_type: transaction::TransactionType::Withdrawal,
+            client: 1,
+            tx: 1,
+            amount: Some(Decimal::new(500, 2)),
+        };
+        let result = engine.process_transaction(&withdrawal_tx);
+        assert!(result.is_err());
+        assert!(matches!(result, Err(PaymentsError::InsufficientFunds)));
+    }
 }
