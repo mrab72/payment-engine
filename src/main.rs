@@ -1,6 +1,8 @@
 use clap::Parser;
 use std::path::PathBuf;
 
+use crate::libs::payment_engine;
+
 mod libs;
 
 /// Payment engine cli tool.
@@ -26,7 +28,7 @@ struct Args {
     log_level: Option<String>,
 }
 
-fn init_logger(log_level: &str) -> () {
+fn init_logger(log_level: &str) {
     let level = match log_level.to_lowercase().as_str() {
         "error" => log::LevelFilter::Error,
         "warn" => log::LevelFilter::Warn,
@@ -55,11 +57,32 @@ fn main() {
         log::error!("Input file does not exist: {:?}", input_path);
         std::process::exit(1);
     }
-    if !input_path.extension().map_or(false, |ext| ext == "csv") {
+    if input_path.extension().is_none_or(|ext| ext != "csv") {
         log::error!("Input file is not a CSV file: {:?}", input_path);
         std::process::exit(1);
     }
-
+    let mut engine = payment_engine::PaymentsEngine::new();
+    engine.process_transactions_from_file(&input_path).unwrap_or_else(|e| {
+        log::error!("Failed to process transactions: {}", e);
+        std::process::exit(1);
+    });
     let output_path = args.output;
-
+    if let Some(path) = output_path {
+        let file = std::fs::File::create(&path).unwrap_or_else(|e| {
+            log::error!("Failed to create output file {:?}: {}", path, e);
+            std::process::exit(1);
+        });
+        let writer = std::io::BufWriter::new(file);
+        engine.write_accounts_csv(writer).unwrap_or_else(|e| {
+            log::error!("Failed to write accounts to CSV: {}", e);
+            std::process::exit(1);
+        });
+        log::info!("Accounts written to {:?}", path);
+    } else {
+        let writer = std::io::stdout();
+        engine.write_accounts_csv(writer).unwrap_or_else(|e| {
+            log::error!("Failed to write accounts to stdout: {}", e);
+            std::process::exit(1);
+        });
+    }
 }
