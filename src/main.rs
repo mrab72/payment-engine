@@ -1,9 +1,10 @@
 use clap::Parser;
 use std::path::PathBuf;
 
-use crate::libs::payment_engine;
+use crate::libs::payment_engine::{self, EngineConfig};
 
 mod libs;
+mod benchmark;
 
 /// Payment engine cli tool.
 /// Reads transactions from a CSV file, processes them, and outputs the final state of client accounts.
@@ -26,6 +27,26 @@ struct Args {
     /// Log level (e.g., info, debug, warn)
     #[arg(short, long, help = "Log level (e.g., info, debug, warn)")]
     log_level: Option<String>,
+
+    /// Engine type to use
+    #[arg(short, long, help = "Engine type: standard, bounded, or concurrent (defaults to standard)")]
+    engine: Option<String>,
+
+    /// Maximum number of accounts in memory (for bounded/concurrent engines)
+    #[arg(long, help = "Maximum accounts in memory (bounded/concurrent only, default: 10000)")]
+    max_accounts: Option<usize>,
+
+    /// Maximum number of disputable transactions in memory (for bounded/concurrent engines)
+    #[arg(long, help = "Maximum disputable transactions in memory (bounded/concurrent only, default: 50000)")]
+    max_transactions: Option<usize>,
+
+    /// Maximum number of processed transaction IDs in memory (for bounded/concurrent engines)
+    #[arg(long, help = "Maximum processed transaction IDs in memory (bounded/concurrent only, default: 1000000)")]
+    max_tx_ids: Option<usize>,
+
+    /// Automatically configure engine based on available memory in MB
+    #[arg(long, help = "Auto-configure bounded engine for given memory limit in MB (overrides other max-* options)")]
+    memory_limit_mb: Option<usize>,
 }
 
 fn init_logger(log_level: &str) {
@@ -61,11 +82,36 @@ fn main() {
         log::error!("Input file is not a CSV file: {:?}", input_path);
         std::process::exit(1);
     }
-    let mut engine = payment_engine::PaymentsEngine::new();
+    
+    // Create engine based on CLI arguments
+    let config = EngineConfig::from_cli_params(
+        args.engine.as_deref(),
+        args.max_accounts,
+        args.max_transactions,
+        args.max_tx_ids,
+        args.memory_limit_mb
+    );
+    let mut engine = payment_engine::PaymentsEngine::new(config);
+    
+    // Log engine information
+    let engine_info = engine.get_engine_info();
+    log::info!("Using {} engine (memory bounded: {}, concurrent: {})", 
+               engine_info.engine_type, engine_info.memory_bounded, engine_info.concurrent);
+    if let Some(limits) = &engine_info.memory_limits {
+        log::info!("Memory limits - accounts: {}, transactions: {}, tx_ids: {}", 
+                   limits.max_accounts, limits.max_disputable_transactions, limits.max_processed_tx_ids);
+    }
     engine.process_transactions_from_file(&input_path).unwrap_or_else(|e| {
         log::error!("Failed to process transactions: {}", e);
         std::process::exit(1);
     });
+    
+    // Log final engine statistics
+    let final_info = engine.get_engine_info();
+    log::info!("Processing completed. Final account count: {}", final_info.account_count);
+    if let Some(tx_count) = final_info.transaction_count {
+        log::info!("Disputable transactions in memory: {}", tx_count);
+    }
     let output_path = args.output;
     if let Some(path) = output_path {
         let file = std::fs::File::create(&path).unwrap_or_else(|e| {
