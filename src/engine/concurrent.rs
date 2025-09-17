@@ -140,11 +140,7 @@ impl ConcurrentEngine {
                 move || -> Result<usize, Box<dyn std::error::Error + Send + Sync>> {
                     let mut processed_count = 0;
 
-                    loop {
-                        let transaction = match rx.recv() {
-                            Ok(tx) => tx,
-                            Err(_) => break,
-                        };
+                    while let Ok(transaction) = rx.recv() {
 
                         // Process the transaction
                         let result = {

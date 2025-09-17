@@ -9,7 +9,11 @@ pub struct PaymentEngineBenchmark;
 
 impl PaymentEngineBenchmark {
     /// Generate synthetic transaction data for testing
-    pub fn generate_transactions(count: usize, dispute_rate: f32, unique_accounts: usize) -> Vec<Transaction> {
+    pub fn generate_transactions(
+        count: usize,
+        dispute_rate: f32,
+        unique_accounts: usize,
+    ) -> Vec<Transaction> {
         let mut transactions = Vec::with_capacity(count);
 
         // Generate deposits and withdrawals
@@ -82,7 +86,8 @@ impl PaymentEngineBenchmark {
         dispute_rate: f32,
         unique_accounts: usize,
     ) -> BenchmarkResult {
-        let transactions = Self::generate_transactions(transaction_count, dispute_rate, unique_accounts);
+        let transactions =
+            Self::generate_transactions(transaction_count, dispute_rate, unique_accounts);
         let csv_data = Self::transactions_to_csv(&transactions);
 
         let start_memory = Self::get_memory_usage();
@@ -114,7 +119,8 @@ impl PaymentEngineBenchmark {
         max_transactions: usize,
         max_processed_ids: usize,
     ) -> BenchmarkResult {
-        let transactions = Self::generate_transactions(transaction_count, dispute_rate, unique_accounts);
+        let transactions =
+            Self::generate_transactions(transaction_count, dispute_rate, unique_accounts);
         let csv_data = Self::transactions_to_csv(&transactions);
 
         let start_memory = Self::get_memory_usage();
@@ -154,7 +160,8 @@ impl PaymentEngineBenchmark {
         max_transactions: usize,
         max_processed_ids: usize,
     ) -> BenchmarkResult {
-        let transactions = Self::generate_transactions(transaction_count, dispute_rate, unique_accounts);
+        let transactions =
+            Self::generate_transactions(transaction_count, dispute_rate, unique_accounts);
         let csv_data = Self::transactions_to_csv(&transactions);
 
         let start_memory = Self::get_memory_usage();
