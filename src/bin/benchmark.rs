@@ -39,8 +39,11 @@ fn main() {
 
     match args.engine.as_str() {
         "standard" => {
-            let result =
-                PaymentEngineBenchmark::benchmark_standard_engine(args.transactions, dispute_rate);
+            let result = PaymentEngineBenchmark::benchmark_standard_engine(
+                args.transactions,
+                dispute_rate,
+                args.max_accounts,
+            );
             result.print_summary();
         }
         "bounded" => {
@@ -50,6 +53,7 @@ fn main() {
                 args.max_accounts,
                 args.max_transactions,
                 args.max_tx_ids,
+                args.max_accounts,
             );
             result.print_summary();
         }
@@ -61,6 +65,7 @@ fn main() {
                 args.max_accounts,
                 args.max_transactions,
                 args.max_tx_ids,
+                args.max_accounts,
             );
             result.print_summary();
         }

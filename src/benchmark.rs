@@ -3,18 +3,23 @@ use crate::transaction::{Transaction, TransactionType};
 use rust_decimal::Decimal;
 use std::io::Cursor;
 
+use memory_stats::memory_stats;
 /// Benchmark utilities for testing memory usage and performance
 pub struct PaymentEngineBenchmark;
 
 impl PaymentEngineBenchmark {
     /// Generate synthetic transaction data for testing
-    pub fn generate_transactions(count: usize, dispute_rate: f32) -> Vec<Transaction> {
+    pub fn generate_transactions(
+        count: usize,
+        dispute_rate: f32,
+        unique_accounts: usize,
+    ) -> Vec<Transaction> {
         let mut transactions = Vec::with_capacity(count);
 
         // Generate deposits and withdrawals
         for i in 0..count {
             let tx_id = i as u32 + 1;
-            let client_id = (i % 1000) as u16 + 1; // 1000 unique clients
+            let client_id = (i % unique_accounts) as u16 + 1; // Configurable unique clients
             let amount = Decimal::new((i % 10000) as i64 + 100, 2); // $1-$100
 
             let tx_type = if i % 3 == 0 {
@@ -35,7 +40,7 @@ impl PaymentEngineBenchmark {
         let dispute_count = (count as f32 * dispute_rate) as usize;
         for i in 0..dispute_count {
             let disputed_tx_id = (i + 1) as u32;
-            let client_id = ((i % 1000) as u16) + 1;
+            let client_id = ((i % unique_accounts) as u16) + 1;
 
             transactions.push(Transaction {
                 tx_type: TransactionType::Dispute,
@@ -79,8 +84,10 @@ impl PaymentEngineBenchmark {
     pub fn benchmark_standard_engine(
         transaction_count: usize,
         dispute_rate: f32,
+        unique_accounts: usize,
     ) -> BenchmarkResult {
-        let transactions = Self::generate_transactions(transaction_count, dispute_rate);
+        let transactions =
+            Self::generate_transactions(transaction_count, dispute_rate, unique_accounts);
         let csv_data = Self::transactions_to_csv(&transactions);
 
         let start_memory = Self::get_memory_usage();
@@ -107,11 +114,13 @@ impl PaymentEngineBenchmark {
     pub fn benchmark_bounded_engine(
         transaction_count: usize,
         dispute_rate: f32,
+        unique_accounts: usize,
         max_accounts: usize,
         max_transactions: usize,
         max_processed_ids: usize,
     ) -> BenchmarkResult {
-        let transactions = Self::generate_transactions(transaction_count, dispute_rate);
+        let transactions =
+            Self::generate_transactions(transaction_count, dispute_rate, unique_accounts);
         let csv_data = Self::transactions_to_csv(&transactions);
 
         let start_memory = Self::get_memory_usage();
@@ -145,12 +154,14 @@ impl PaymentEngineBenchmark {
     pub fn benchmark_concurrent_engine(
         transaction_count: usize,
         dispute_rate: f32,
+        unique_accounts: usize,
         stream_count: usize,
         max_accounts: usize,
         max_transactions: usize,
         max_processed_ids: usize,
     ) -> BenchmarkResult {
-        let transactions = Self::generate_transactions(transaction_count, dispute_rate);
+        let transactions =
+            Self::generate_transactions(transaction_count, dispute_rate, unique_accounts);
         let csv_data = Self::transactions_to_csv(&transactions);
 
         let start_memory = Self::get_memory_usage();
@@ -178,12 +189,11 @@ impl PaymentEngineBenchmark {
 
     /// Simple memory usage estimation (placeholder - in real benchmarks use proper profiling tools)
     fn get_memory_usage() -> usize {
-        // In a real implementation, you would use:
-        // - `psutil` crate for process memory
-        // - `jemalloc` or `mimalloc` allocator stats
-        // - Custom allocation tracking
-        // For now, return 0 as this is just a demonstration
-        0
+        if let Some(usage) = memory_stats() {
+            usage.physical_mem
+        } else {
+            0
+        }
     }
 }
 
@@ -223,10 +233,11 @@ mod tests {
         const DISPUTE_RATE: f32 = 0.05; // 5%
 
         let standard_result =
-            PaymentEngineBenchmark::benchmark_standard_engine(TX_COUNT, DISPUTE_RATE);
+            PaymentEngineBenchmark::benchmark_standard_engine(TX_COUNT, DISPUTE_RATE, 1000);
         let bounded_result = PaymentEngineBenchmark::benchmark_bounded_engine(
             TX_COUNT,
             DISPUTE_RATE,
+            1000,
             1000,
             1000,
             10_000,
@@ -249,6 +260,7 @@ mod tests {
         let concurrent_result = PaymentEngineBenchmark::benchmark_concurrent_engine(
             TX_COUNT,
             DISPUTE_RATE,
+            500,
             STREAM_COUNT,
             500,
             500,
@@ -269,6 +281,7 @@ mod tests {
         let bounded_result = PaymentEngineBenchmark::benchmark_bounded_engine(
             TX_COUNT,
             DISPUTE_RATE,
+            1000,
             1000,
             2000,
             50_000,

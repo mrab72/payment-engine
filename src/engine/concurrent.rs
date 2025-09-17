@@ -247,10 +247,7 @@ impl ConcurrentEngine {
         writer: W,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let engine = self.engine.lock().map_err(|e| {
-            std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to acquire engine lock for export: {}", e),
-            )
+            std::io::Error::other(format!("Failed to acquire engine lock for export: {}", e))
         })?;
         engine.write_accounts_csv(writer)
     }
@@ -262,7 +259,7 @@ impl ConcurrentEngine {
                 memory_bounded: true,
                 concurrent: true,
                 account_count: engine.accounts.len(),
-                transaction_count: None, // Can't easily determine due to concurrency
+                transaction_count: None,
                 memory_limits: Some(self.memory_limits.clone()),
             }
         } else {
