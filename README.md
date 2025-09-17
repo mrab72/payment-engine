@@ -172,7 +172,7 @@ The concurrent engine uses **client-based assignment** to ensure all transaction
 | Large datasets (> 100K transactions) | `bounded` or `concurrent` | Memory-efficient with optional parallelism |
 | Memory-constrained environments | `bounded` with `--memory-limit-mb` | Auto-configured memory limits |
 | High-throughput processing | `concurrent` | Parallel processing with client-based assignment |
-| Single CSV file processing | `standard`, `bounded`, or `concurrent` | All engines are now safe |
+| Single CSV file processing | `standard`, `bounded`, or `concurrent` | All engines are safe |
 | Production systems | `bounded` or `concurrent` | Memory-safe and scalable |
 
 You can select an engine via `--engine` or let `--memory-limit-mb` auto-size a bounded configuration. When using bounded/concurrent modes, entries may be evicted per LRU; only currently cached accounts are emitted in the final CSV.
