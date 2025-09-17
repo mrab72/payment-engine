@@ -1,11 +1,5 @@
-pub mod account;
-pub mod transaction;
-pub mod payment_engine;
-use rust_decimal::Decimal;
-use transaction::{TxId};
+use crate::transaction::TxId;
 use thiserror::Error;
-pub type Amount = Decimal;
-
 
 /// Custom error type for payment processing errors.
 /// Includes errors for account issues, transaction problems, and invalid operations.
