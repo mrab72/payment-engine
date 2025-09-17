@@ -106,3 +106,87 @@ impl Account {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+     
+    #[test]
+    fn test_account_creation() {
+        let account = Account::new(1);
+        assert_eq!(account.client, 1);
+        assert_eq!(account.available, Amount::new(0, 0));
+        assert_eq!(account.held, Amount::new(0, 0));
+        assert_eq!(account.total, Amount::new(0, 0));
+        assert!(!account.locked);
+    }
+
+    #[test]
+    fn test_deposit() {
+        let mut account = Account::new(1);
+        account.deposit(Amount::new(100, 0)).unwrap();
+        assert_eq!(account.available, Amount::new(100, 0));
+        assert_eq!(account.total, Amount::new(100, 0));
+    }
+
+    #[test]
+    fn test_withdraw() {
+        let mut account = Account::new(1);
+        account.deposit(Amount::new(100, 0)).unwrap();
+        account.withdraw(Amount::new(50, 0)).unwrap();
+        assert_eq!(account.available, Amount::new(50, 0));
+        assert_eq!(account.total, Amount::new(50, 0));
+    }
+
+    #[test]
+    fn test_withdraw_insufficient_funds() {
+        let mut account = Account::new(1);
+        let result = account.withdraw(Amount::new(50, 0));
+        assert!(matches!(result, Err(PaymentsError::InsufficientFunds)));
+    }
+
+    #[test]
+    fn test_hold() {
+        let mut account = Account::new(1);
+        account.deposit(Amount::new(100, 0)).unwrap();
+        account.hold(Amount::new(30, 0)).unwrap();
+        assert_eq!(account.available, Amount::new(70, 0));
+        assert_eq!(account.held, Amount::new(30, 0));
+        assert_eq!(account.total, Amount::new(100, 0));
+    }
+
+    #[test]
+    fn test_release() {
+        let mut account = Account::new(1);
+        account.deposit(Amount::new(100, 0)).unwrap();
+        account.hold(Amount::new(30, 0)).unwrap();
+        account.release(Amount::new(20, 0)).unwrap();
+        assert_eq!(account.available, Amount::new(90, 0));
+        assert_eq!(account.held, Amount::new(10, 0));
+        assert_eq!(account.total, Amount::new(100, 0));
+    }
+
+    #[test]
+    fn test_chargeback() {
+        let mut account = Account::new(1);
+        account.deposit(Amount::new(100, 0)).unwrap();
+        account.hold(Amount::new(50, 0)).unwrap();
+        account.chargeback(Amount::new(50, 0)).unwrap();
+        assert_eq!(account.available, Amount::new(50, 0));
+        assert_eq!(account.held, Amount::new(0, 0));
+        assert_eq!(account.total, Amount::new(50, 0));
+        assert!(account.locked);
+    }
+
+    #[test]
+    fn test_account_locked() {
+        let mut account = Account::new(1);
+        account.locked = true;
+        let deposit_result = account.deposit(Amount::new(100, 0));
+        assert!(matches!(deposit_result, Err(PaymentsError::AccountFrozen)));
+        let withdraw_result = account.withdraw(Amount::new(50, 0));
+        assert!(matches!(withdraw_result, Err(PaymentsError::AccountFrozen)));
+        let hold_result = account.hold(Amount::new(30, 0));
+        assert!(matches!(hold_result, Err(PaymentsError::AccountFrozen)));
+    }
+}
