@@ -48,6 +48,9 @@ cargo build --release
 
 # Auto-size bounded engine for a memory budget (in MB)
 ./target/release/payments-engine transactions.csv --memory-limit-mb 256
+
+# ⚠️ WARNING: Only use concurrent engine for multiple independent streams
+# ./target/release/payments-engine transactions.csv --engine concurrent
 ```
 
 ### Command Line Options
@@ -55,7 +58,7 @@ cargo build --release
 - `<input_file>`: Path to the input CSV file containing transactions (required)
 - `--output, -o <file>`: Output file path (optional, defaults to stdout)
 - `--log-level, -l <level>`: Log level - error, warn, info, debug, trace (optional, defaults to info)
-- `--engine, -e <type>`: Engine type: `standard` (default), `bounded`, or `concurrent`
+- `--engine, -e <type>`: Engine type: `standard` (default), `bounded`, or `concurrent` ⚠️ **Warning**: `concurrent` can cause race conditions with single CSV files
 - `--max-accounts <n>`: Max accounts in memory (bounded/concurrent). Default: 10,000
 - `--max-transactions <n>`: Max disputable transactions in memory (bounded/concurrent). Default: 50,000
 - `--max-tx-ids <n>`: Max processed transaction IDs in memory (bounded/concurrent). Default: 1,000,000
@@ -149,7 +152,32 @@ client,available,held,total,locked
 
 - **Standard**: In-memory `HashMap`/`HashSet`. Best for small/medium datasets. Unlimited by default.
 - **Bounded**: Memory-capped using `lru::LruCache` for accounts, disputables, and processed tx IDs. Best for large datasets on a single machine.
-- **Concurrent**: Threaded variant built on the bounded engine with a shared `Arc<Mutex<...>>`; suitable for high-throughput ingestion from multiple readers/streams.
+- **Concurrent**: Threaded variant built on the bounded engine with a shared `Arc<Mutex<...>>`. ⚠️ **WARNING**: This engine can cause race conditions and transaction ordering issues. Only use for specific high-throughput scenarios with independent data streams.
+
+#### ⚠️ Important: Concurrent Engine Limitations
+
+The concurrent engine **should NOT be used** for:
+- Single CSV file processing (causes race conditions)
+- Ordered transaction sequences (breaks chronological ordering)
+- Cross-transaction dependencies (can lead to incorrect results)
+
+**Use concurrent engine ONLY for:**
+- Multiple independent TCP streams
+- Real-time processing with no ordering dependencies
+- High-throughput scenarios where correctness is less critical than performance
+
+**For most use cases, use Standard or Bounded engines instead.**
+
+#### Engine Selection Guide
+
+| Use Case | Recommended Engine | Reason |
+|----------|-------------------|---------|
+| Small datasets (< 10K transactions) | `standard` | Simple, fast, no memory limits |
+| Large datasets (> 100K transactions) | `bounded` | Memory-efficient with LRU eviction |
+| Memory-constrained environments | `bounded` with `--memory-limit-mb` | Auto-configured memory limits |
+| Multiple independent streams | `concurrent` | High throughput for parallel processing |
+| Single CSV file processing | `standard` or `bounded` | Avoids race conditions |
+| Production systems | `bounded` | Memory-safe and predictable |
 
 You can select an engine via `--engine` or let `--memory-limit-mb` auto-size a bounded configuration. When using bounded/concurrent modes, entries may be evicted per LRU; only currently cached accounts are emitted in the final CSV.
 
@@ -184,6 +212,29 @@ cargo build --release
   --max-accounts 10000 --max-transactions 50000 --max-tx-ids 1000000
 ./target/release/benchmark --engine concurrent -n 500000 --streams 8 \
   --max-accounts 20000 --max-transactions 100000 --max-tx-ids 2000000
+```
+
+## ⚠️ Concurrent Engine Race Conditions
+
+The concurrent engine can cause race conditions when processing single CSV files. Here's an example:
+
+```csv
+# Input CSV
+type,client,tx,amount
+deposit,1,1,100.0
+withdrawal,1,2,50.0
+```
+
+**Problem**: In concurrent mode, the withdrawal might be processed before the deposit, causing "Insufficient funds" errors.
+
+**Solution**: Use `standard` or `bounded` engines for single CSV files.
+
+```bash
+# ✅ Correct - maintains transaction order
+./target/release/payments-engine transactions.csv --engine standard
+
+# ❌ Incorrect - can cause race conditions  
+./target/release/payments-engine transactions.csv --engine concurrent
 ```
 
 ## Examples
