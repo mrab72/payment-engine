@@ -10,6 +10,8 @@ A robust, high-performance payment processing engine written in Rust that handle
 - **CSV Input/Output**: Processes transactions from CSV files and outputs account states
 - **Precision**: Uses `rust_decimal` for accurate financial calculations
 - **Logging**: Configurable logging levels for debugging and monitoring
+- **Pluggable Engines**: Choose between `standard`, `bounded` (LRU-capped memory), and `concurrent`
+- **Memory Controls**: Set explicit caps or auto-size via `--memory-limit-mb`
 
 ## Installation
 
@@ -39,6 +41,13 @@ cargo build --release
 
 # With debug logging
 ./target/release/payments-engine transactions.csv --log-level debug
+
+# Use a specific engine (standard | bounded | concurrent)
+./target/release/payments-engine transactions.csv --engine bounded \
+  --max-accounts 10000 --max-transactions 50000 --max-tx-ids 1000000
+
+# Auto-size bounded engine for a memory budget (in MB)
+./target/release/payments-engine transactions.csv --memory-limit-mb 256
 ```
 
 ### Command Line Options
@@ -46,6 +55,11 @@ cargo build --release
 - `<input_file>`: Path to the input CSV file containing transactions (required)
 - `--output, -o <file>`: Output file path (optional, defaults to stdout)
 - `--log-level, -l <level>`: Log level - error, warn, info, debug, trace (optional, defaults to info)
+- `--engine, -e <type>`: Engine type: `standard` (default), `bounded`, or `concurrent`
+- `--max-accounts <n>`: Max accounts in memory (bounded/concurrent). Default: 10,000
+- `--max-transactions <n>`: Max disputable transactions in memory (bounded/concurrent). Default: 50,000
+- `--max-tx-ids <n>`: Max processed transaction IDs in memory (bounded/concurrent). Default: 1,000,000
+- `--memory-limit-mb <n>`: Auto-configure bounded engine based on memory budget; overrides the three max-* options
 
 ### Input CSV Format
 
@@ -126,10 +140,18 @@ client,available,held,total,locked
 
 ### Core Components
 
-- **PaymentsEngine**: Main engine that processes transactions and manages accounts
+- **PaymentsEngine**: Main facade that processes transactions and manages accounts
 - **Account**: Represents a client account with balances and lock status
 - **Transaction**: Input transaction structure
 - **StoredTransaction**: Internal transaction record with dispute status
+
+### Engine Variants
+
+- **Standard**: In-memory `HashMap`/`HashSet`. Best for small/medium datasets. Unlimited by default.
+- **Bounded**: Memory-capped using `lru::LruCache` for accounts, disputables, and processed tx IDs. Best for large datasets on a single machine.
+- **Concurrent**: Threaded variant built on the bounded engine with a shared `Arc<Mutex<...>>`; suitable for high-throughput ingestion from multiple readers/streams.
+
+You can select an engine via `--engine` or let `--memory-limit-mb` auto-size a bounded configuration. When using bounded/concurrent modes, entries may be evicted per LRU; only currently cached accounts are emitted in the final CSV.
 
 ### Error Handling
 
@@ -150,6 +172,19 @@ The engine handles various error conditions:
 - **Transaction Uniqueness**: Ensures transaction IDs are unique
 - **Client Validation**: Verifies client ownership of transactions
 - **Dispute State Tracking**: Prevents duplicate disputes and invalid state transitions
+
+### Benchmarking
+
+Build the benchmarks binary and run synthetic load tests:
+
+```bash
+cargo build --release
+./target/release/benchmark --engine standard -n 100000 --dispute-rate-percent 5
+./target/release/benchmark --engine bounded -n 200000 \
+  --max-accounts 10000 --max-transactions 50000 --max-tx-ids 1000000
+./target/release/benchmark --engine concurrent -n 500000 --streams 8 \
+  --max-accounts 20000 --max-transactions 100000 --max-tx-ids 2000000
+```
 
 ## Examples
 
@@ -217,10 +252,11 @@ cargo fmt
 - `thiserror`: Error handling
 - `log` + `env_logger`: Logging
 - `derive_more`: Derive macros
+- `lru`: Memory-bounded caches for the bounded/concurrent engines
 
 ## Performance
 
-- **Memory Efficient**: Uses HashMap for O(1) account and transaction lookups
+- **Memory Efficient**: Uses `HashMap`/`HashSet` in standard mode; `lru::LruCache` to cap memory in bounded/concurrent modes
 - **Zero-Copy**: Minimal data copying during processing
 - **Streaming**: Processes CSV files line by line without loading entire file into memory
 - **Error Recovery**: Continues processing after individual transaction failures

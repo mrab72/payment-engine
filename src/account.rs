@@ -1,19 +1,25 @@
-
 use derive_more::Display;
 use serde::{Deserialize, Serialize};
 
-use super::{Amount, PaymentsError};
+use crate::errors::PaymentsError;
+use crate::transaction::Amount;
 
 /// Unique identifier for a client.
 pub type ClientId = u16;
 
 /// Represents a client's account with available, held, and total funds, as well as a locked status.
-/// 
-#[derive(Debug, Clone, Display, Deserialize, Serialize)] 
-#[display("Client {}: available={}, held={}, total={}, locked={}", client, available, held, total, locked)]
+///
+#[derive(Debug, Clone, Display, Deserialize, Serialize)]
+#[display(
+    "Client {}: available={}, held={}, total={}, locked={}",
+    client,
+    available,
+    held,
+    total,
+    locked
+)]
 pub struct Account {
     /// Unique identifier for the client.
-    
     pub client: ClientId,
 
     /// Funds available for transactions.
@@ -50,7 +56,7 @@ impl Account {
         if self.locked {
             return Err(PaymentsError::AccountFrozen);
         }
-        
+
         self.available += amount;
         self.total += amount;
         Ok(())
@@ -58,15 +64,15 @@ impl Account {
 
     /// Withdraws the specified amount from the account, updating available and total balances.
     /// Returns an error if the account is locked or if there are insufficient funds.
-    pub fn withdraw(&mut self, amount: Amount) -> Result<(), PaymentsError>{
+    pub fn withdraw(&mut self, amount: Amount) -> Result<(), PaymentsError> {
         if self.locked {
             return Err(PaymentsError::AccountFrozen);
         }
-        
+
         if self.available < amount {
             return Err(PaymentsError::InsufficientFunds);
         }
-        
+
         self.available -= amount;
         self.total -= amount;
         Ok(())
@@ -110,7 +116,7 @@ impl Account {
 #[cfg(test)]
 mod tests {
     use super::*;
-     
+
     #[test]
     fn test_account_creation() {
         let account = Account::new(1);

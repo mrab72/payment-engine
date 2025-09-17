@@ -12,7 +12,16 @@ log = "0.4.28"
 rust_decimal = { version = "1.35", features = ["serde-with-str"] }
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "1.0"
+lru = "0.12"
+
+[lib]
+name = "payment_engine"
+path = "src/lib.rs"
 
 [[bin]]
 name = "payments-engine"
-path = "src/main.rs"
+path = "src/bin/payment-engine.rs"
+
+[[bin]]
+name = "benchmark"
+path = "src/bin/benchmark.rs"

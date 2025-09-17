@@ -1,6 +1,8 @@
+use crate::account::ClientId;
+use rust_decimal::Decimal;
 use serde::Deserialize;
-use super::Amount;
-use super::account::ClientId;
+
+pub type Amount = Decimal;
 
 pub type TxId = u32;
 /// Transaction types supported by the payment engine.
