@@ -148,34 +148,55 @@ client,available,held,total,locked
 
 ### Engine Variants
 
-- **Standard**: In-memory `HashMap`/`HashSet`. Best for small/medium datasets. Unlimited by default.
-- **Bounded**: Memory-capped using `lru::LruCache` for accounts, disputables, and processed tx IDs. Best for large datasets on a single machine.
-- **Concurrent**: Threaded variant built on the bounded engine with a shared `Arc<Mutex<...>>`. Uses client-based transaction assignment to avoid race conditions.
+#### Standard Engine
+**Design**: In-memory `HashMap`/`HashSet` with unlimited growth
+- ✅ **Pros**: Simple, fast for small datasets, no artificial limits
+- ❌ **Cons**: Memory usage grows unbounded, can exhaust system memory with large datasets
+- **Best For**: Small to medium datasets (< 100K transactions), development, testing
 
-#### Concurrent Engine Design
+#### Bounded Engine  
+**Design**: Memory-capped using `lru::LruCache` for accounts, disputables, and processed tx IDs
+- ✅ **Pros**: Predictable memory usage, handles large datasets, configurable limits
+- ❌ **Cons**: LRU eviction may lose account data, potential data loss on eviction
+- **Best For**: Large datasets with memory constraints, production with known memory budgets
+
+#### Concurrent Engine
+**Design**: Multi-threaded wrapper around bounded engine with `Arc<Mutex<BoundedEngine>>`
 
 The concurrent engine uses **client-based assignment** to ensure all transactions for the same client are processed by the same worker thread, eliminating race conditions while maintaining parallelism.
 
-**Use concurrent engine for:**
-- High-throughput scenarios with multiple clients
-- Large datasets where parallelism provides performance benefits
-- Production systems with many concurrent users
-- Any scenario where you want parallelism without correctness issues
+⚠️ **CRITICAL SCALABILITY ISSUES** ⚠️
 
-**The concurrent engine is now safe for single CSV files** and maintains transaction ordering per client.
+The concurrent engine has **fundamental architectural problems** that make it unsuitable for high-concurrency scenarios:
+
+**Major Issues:**
+1. **Global Lock Contention**: Every transaction from every stream must acquire the same `Arc<Mutex<>>` lock, creating a massive bottleneck
+2. **Thread-per-Stream Model**: Spawns one OS thread per TCP stream, which doesn't scale beyond ~hundreds of streams
+3. **Memory Explosion**: With 1000+ streams, thread stacks alone consume 2+ GB of RAM
+4. **Serialized Processing**: Despite being "concurrent", the global lock serializes all transaction processing
+
+**Performance Reality:**
+- ✅ Works for single CSV files with client-based worker assignment
+- ✅ Handles moderate concurrency (2-10 streams) reasonably well
+- ❌ Lock contention actually makes it slower than single-threaded engines at scale
+
+**For True High-Concurrency Processing:**
+- Async/await architecture (Tokio) instead of threads
+- Sharded state (multiple engines) instead of global locks
+- Streaming with backpressure instead of buffering
+- Lock-free or fine-grained locking strategies
 
 #### Engine Selection Guide
 
 | Use Case | Recommended Engine | Reason |
 |----------|-------------------|---------|
 | Small datasets (< 10K transactions) | `standard` | Simple, fast, no memory limits |
-| Large datasets (> 100K transactions) | `bounded` or `concurrent` | Memory-efficient with optional parallelism |
+| Large datasets (> 100K transactions) | `bounded` | Memory-efficient, predictable resource usage |
 | Memory-constrained environments | `bounded` with `--memory-limit-mb` | Auto-configured memory limits |
-| High-throughput processing | `concurrent` | Parallel processing with client-based assignment |
-| Single CSV file processing | `standard`, `bounded`, or `concurrent` | All engines are safe |
-| Production systems | `bounded` or `concurrent` | Memory-safe and scalable |
-
-You can select an engine via `--engine` or let `--memory-limit-mb` auto-size a bounded configuration. When using bounded/concurrent modes, entries may be evicted per LRU; only currently cached accounts are emitted in the final CSV.
+| Single CSV file processing | `standard` or `bounded` | Both are efficient and safe |
+| Light concurrency (2-10 streams) | `concurrent` | Acceptable with limited streams |
+| **HIGH CONCURRENCY (1000+ streams)** | **❌ None - Architecture Redesign Needed** | Current engines don't scale to this level |
+| Production systems | `bounded` | Memory-safe and predictable |
 
 ### Error Handling
 
@@ -203,23 +224,39 @@ Build the benchmarks binary and run synthetic load tests:
 
 ```bash
 cargo build --release
+
+# Standard engine - good for small datasets
 ./target/release/benchmark --engine standard -n 100000 --dispute-rate-percent 5
+
+# Bounded engine - good for large datasets
 ./target/release/benchmark --engine bounded -n 200000 \
   --max-accounts 10000 --max-transactions 50000 --max-tx-ids 1000000
+
+# Concurrent engine - limited scalability due to global lock
 ./target/release/benchmark --engine concurrent -n 500000 --streams 8 \
   --max-accounts 20000 --max-transactions 100000 --max-tx-ids 2000000
+
 ```
 
-## Concurrent Engine Performance
+## Performance Characteristics
 
-The concurrent engine now uses client-based assignment to ensure correctness while providing parallelism:
+### Standard Engine
+- **Throughput**: Excellent for small datasets
+- **Memory**: Unbounded growth - can OOM on large datasets
+- **Concurrency**: Single-threaded only
 
-```bash
-# All engines are now safe for single CSV files
-./target/release/payments-engine transactions.csv --engine standard
-./target/release/payments-engine transactions.csv --engine bounded  
-./target/release/payments-engine transactions.csv --engine concurrent
-```
+### Bounded Engine  
+- **Throughput**: Good, consistent performance
+- **Memory**: Bounded by configuration, predictable
+- **Concurrency**: Single-threaded only
+
+### Concurrent Engine
+- **Throughput**: 
+  - ✅ Good with 2-10 streams (client-based assignment helps)
+  - ❌ Poor with 100+ streams (lock contention dominates)
+  - ❌ Fails with 1000+ streams (thread exhaustion)
+- **Memory**: Bounded + thread overhead (problematic at scale)
+- **Concurrency**: Limited by global lock architecture
 
 ## Examples
 
@@ -302,3 +339,82 @@ cargo fmt
 - **State Integrity**: Account balances are always consistent
 - **Audit Trail**: All transactions are stored for future reference
 - **Immutable History**: Transaction records cannot be modified after creation
+
+
+## Future Improvements
+
+The current CLI architecture has several limitations that require addressing for production use:
+
+### State Persistence (Critical Missing Feature)
+**Problem**: CLI processes only single CSV files without maintaining account history between runs.
+
+```bash
+# Day 1: Process initial transactions
+./payments-engine day1_transactions.csv > day1_accounts.csv
+
+# Day 2: All previous state is lost!
+./payments-engine day2_transactions.csv > day2_accounts.csv
+# ❌ Can't dispute Day 1 transactions, accounts start from zero
+```
+
+**Required Solution**:
+```rust
+pub trait PersistentEngine {
+    /// Load previous state from disk before processing new transactions
+    fn load_state(&mut self, state_dir: &Path) -> Result<(), Box<dyn std::error::Error>>;
+    
+    /// Save current state to disk after processing
+    fn save_state(&self, state_dir: &Path) -> Result<(), Box<dyn std::error::Error>>;
+}
+
+// Enhanced CLI with persistence
+./payments-engine day2_transactions.csv --state-dir ./payment_state
+```
+
+**What needs to be persisted**:
+- Account balances and lock status
+- Disputable transaction history (for future disputes)
+- Processed transaction IDs (for duplicate detection)
+- Metadata (last processed time, transaction counts)
+
+**Current Impact**: 
+- ❌ Can't process incremental daily transaction files
+- ❌ Lose all dispute history between runs  
+- ❌ Can't validate transaction ID uniqueness across days
+- ❌ Not suitable for production batch processing
+
+### High-Concurrency Architecture
+To handle thousands of concurrent TCP streams, consider these architectural changes:
+
+#### Async Architecture
+```rust
+// Replace thread-per-stream with async/await
+pub async fn handle_concurrent_streams(&self, listener: TcpListener) {
+    // Use Tokio for lightweight concurrency
+}
+```
+
+#### Sharded State
+```rust
+// Replace global lock with sharded engines
+pub struct ShardedEngine {
+    shards: Vec<Arc<Mutex<BoundedEngine>>>,
+}
+```
+
+#### Streaming with Backpressure
+```rust
+// Process transactions as they arrive, not in batches
+pub async fn stream_transactions(&self, stream: TcpStream) {
+    // Handle backpressure when processing can't keep up
+}
+```
+
+### Production-Ready Enhancements
+- **Database Integration**: Replace file-based persistence with proper database storage
+- **Transaction Logging**: Immutable audit trail for all processed transactions
+- **Monitoring & Metrics**: Real-time processing statistics and health checks
+- **Configuration Management**: Environment-based configuration for different deployment contexts
+- **Graceful Shutdown**: Proper cleanup and state saving on termination
+
+These improvements would enable true production deployment, incremental processing, and high-concurrency scenarios without the current architectural bottlenecks.
