@@ -4,7 +4,8 @@ use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
 use std::thread;
 
-use super::{EngineInfo, MemoryLimits, bounded::BoundedEngine};
+use super::EngineInfo;
+use crate::engine::standard::StandardEngine;
 use crate::errors::PaymentsError;
 use crate::transaction::Transaction;
 
@@ -13,29 +14,14 @@ use crate::transaction::Transaction;
 /// Each stream processes transactions independently while maintaining global consistency.
 #[derive(Debug)]
 pub struct ConcurrentEngine {
-    engine: Arc<Mutex<BoundedEngine>>,
-    memory_limits: MemoryLimits,
+    engine: Arc<Mutex<StandardEngine>>
 }
 
 impl ConcurrentEngine {
-    pub fn new(
-        max_accounts: usize,
-        max_disputable_transactions: usize,
-        max_processed_tx_ids: usize,
-    ) -> Self {
-        let engine = BoundedEngine::new(
-            max_accounts,
-            max_disputable_transactions,
-            max_processed_tx_ids,
-        );
-        let memory_limits = MemoryLimits {
-            max_accounts,
-            max_disputable_transactions,
-            max_processed_tx_ids,
-        };
+    pub fn new() -> Self {
+        let engine = StandardEngine::new();
         Self {
             engine: Arc::new(Mutex::new(engine)),
-            memory_limits,
         }
     }
 
@@ -260,7 +246,7 @@ impl ConcurrentEngine {
                 concurrent: true,
                 account_count: engine.accounts.len(),
                 transaction_count: None,
-                memory_limits: Some(self.memory_limits.clone()),
+                memory_limits: None,
             }
         } else {
             EngineInfo {
@@ -269,7 +255,7 @@ impl ConcurrentEngine {
                 concurrent: true,
                 account_count: 0,
                 transaction_count: None,
-                memory_limits: Some(self.memory_limits.clone()),
+                memory_limits: None,
             }
         }
     }

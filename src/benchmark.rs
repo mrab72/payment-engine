@@ -156,9 +156,6 @@ impl PaymentEngineBenchmark {
         dispute_rate: f32,
         unique_accounts: usize,
         stream_count: usize,
-        max_accounts: usize,
-        max_transactions: usize,
-        max_processed_ids: usize,
     ) -> BenchmarkResult {
         let transactions =
             Self::generate_transactions(transaction_count, dispute_rate, unique_accounts);
@@ -167,11 +164,7 @@ impl PaymentEngineBenchmark {
         let start_memory = Self::get_memory_usage();
         let start_time = std::time::Instant::now();
         let cursor = Cursor::new(csv_data.as_bytes());
-        let mut engine = PaymentsEngine::new(EngineConfig::concurrent(
-            max_accounts,
-            max_transactions,
-            max_processed_ids,
-        ));
+        let mut engine = PaymentsEngine::new(EngineConfig::concurrent());
         engine.process_transactions_from_reader(cursor).unwrap();
 
         let end_time = std::time::Instant::now();
@@ -179,6 +172,33 @@ impl PaymentEngineBenchmark {
 
         BenchmarkResult {
             engine_type: format!("Concurrent({} streams)", stream_count),
+            transaction_count,
+            dispute_rate,
+            processing_time: end_time.duration_since(start_time),
+            memory_used: end_memory.saturating_sub(start_memory),
+            account_count: engine.get_engine_info().account_count,
+        }
+    }
+
+    /// Benchmark ConcurrentMultiEngine with multiple streams
+    pub fn benchmark_concurrent_multi_engine(
+        transaction_count: usize,
+        dispute_rate: f32,
+        unique_accounts: usize,
+        stream_count: usize,
+    ) -> BenchmarkResult {
+        let transactions =
+            Self::generate_transactions(transaction_count, dispute_rate, unique_accounts);
+        let csv_data = Self::transactions_to_csv(&transactions); 
+        let start_memory = Self::get_memory_usage();
+        let start_time = std::time::Instant::now();
+        let cursor = Cursor::new(csv_data.as_bytes());
+        let mut engine = PaymentsEngine::new(EngineConfig::concurrent_multi_engine(stream_count));
+        engine.process_transactions_from_reader(cursor).unwrap();
+        let end_time = std::time::Instant::now();
+        let end_memory = Self::get_memory_usage();
+        BenchmarkResult {
+            engine_type: format!("ConcurrentMultiEngine({} streams)", stream_count),
             transaction_count,
             dispute_rate,
             processing_time: end_time.duration_since(start_time),
@@ -262,9 +282,6 @@ mod tests {
             DISPUTE_RATE,
             500,
             STREAM_COUNT,
-            500,
-            500,
-            5_000,
         );
 
         concurrent_result.print_summary();

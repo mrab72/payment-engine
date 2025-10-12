@@ -61,14 +61,20 @@ fn main() {
             let result = PaymentEngineBenchmark::benchmark_concurrent_engine(
                 args.transactions,
                 dispute_rate,
+                args.max_accounts,
                 args.streams,
-                args.max_accounts,
-                args.max_transactions,
-                args.max_tx_ids,
-                args.max_accounts,
             );
             result.print_summary();
         }
+        "concurrentmultiengine" | "concurrent_multi_engine" => {
+            let result = PaymentEngineBenchmark::benchmark_concurrent_multi_engine(
+                args.transactions,
+                dispute_rate,
+                args.max_accounts,
+                args.streams,
+            );
+            result.print_summary();
+        }   
         other => {
             eprintln!(
                 "Unknown engine: {} (use standard|bounded|concurrent)",

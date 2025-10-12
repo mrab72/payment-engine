@@ -6,10 +6,12 @@ use crate::transaction::Transaction;
 pub mod bounded;
 pub mod concurrent;
 pub mod standard;
+pub mod concurrent_multi_engine;
 
 use bounded::BoundedEngine;
 use concurrent::ConcurrentEngine;
 use standard::StandardEngine;
+use concurrent_multi_engine::ConcurrentEngineV2;
 
 /// Configuration for creating different types of payment engines
 #[derive(Debug, Clone)]
@@ -23,10 +25,11 @@ pub enum EngineConfig {
         max_processed_tx_ids: usize,
     },
     /// Concurrent engine for handling multiple streams
-    Concurrent {
-        max_accounts: usize,
-        max_disputable_transactions: usize,
-        max_processed_tx_ids: usize,
+    Concurrent,
+
+    /// Concurrent engine with multiple worker engines for true parallelism
+    ConcurrentMultiEngine {
+        num_workers: usize,
     },
 }
 
@@ -50,15 +53,14 @@ impl EngineConfig {
     }
 
     /// Create a concurrent configuration for high-throughput server environments
-    pub fn concurrent(
-        max_accounts: usize,
-        max_disputable_transactions: usize,
-        max_processed_tx_ids: usize,
-    ) -> Self {
-        Self::Concurrent {
-            max_accounts,
-            max_disputable_transactions,
-            max_processed_tx_ids,
+    pub fn concurrent() -> Self {
+        Self::Concurrent
+    }
+
+    /// Create a concurrent multi-engine configuration for true parallelism
+    pub fn concurrent_multi_engine(num_workers: usize) -> Self {
+        Self::ConcurrentMultiEngine {
+            num_workers,
         }
     }
 
@@ -104,7 +106,14 @@ impl EngineConfig {
         match engine_type.as_str() {
             "standard" => Self::standard(),
             "bounded" => Self::bounded(max_accounts, max_transactions, max_tx_ids),
-            "concurrent" => Self::concurrent(max_accounts, max_transactions, max_tx_ids),
+            "concurrent" => Self::concurrent(),
+            "concurrentmultiengine" | "concurrent_multi_engine" => {
+                // For multi-engine, default to 4 workers if not specified
+                let num_workers = 4;
+                Self::concurrent_multi_engine(
+                    num_workers,
+                )
+            }
             _ => {
                 log::warn!(
                     "Unknown engine type: {}, defaulting to standard",
@@ -144,6 +153,9 @@ pub enum PaymentsEngine {
     Bounded(BoundedEngine),
     /// Concurrent engine for high-throughput scenarios
     Concurrent(ConcurrentEngine),
+
+    /// Concurrent multi-engine for true parallelism
+    ConcurrentMultiEngine(ConcurrentEngineV2),
 }
 
 impl PaymentsEngine {
@@ -161,14 +173,10 @@ impl PaymentsEngine {
                 max_processed_tx_ids,
             )),
             EngineConfig::Concurrent {
-                max_accounts,
-                max_disputable_transactions,
-                max_processed_tx_ids,
-            } => Self::Concurrent(ConcurrentEngine::new(
-                max_accounts,
-                max_disputable_transactions,
-                max_processed_tx_ids,
-            )),
+            } => Self::Concurrent(ConcurrentEngine::new()),
+            EngineConfig::ConcurrentMultiEngine {
+                num_workers,
+            } => Self::ConcurrentMultiEngine(ConcurrentEngineV2::new(num_workers)),
         }
     }
 
@@ -178,6 +186,7 @@ impl PaymentsEngine {
             Self::Standard(engine) => engine.process_transaction(transaction),
             Self::Bounded(engine) => engine.process_transaction(transaction),
             Self::Concurrent(engine) => engine.process_transaction(transaction),
+            Self::ConcurrentMultiEngine(engine) => engine.process_transaction(transaction),
         }
     }
 
@@ -190,6 +199,7 @@ impl PaymentsEngine {
             Self::Standard(engine) => engine.process_transactions_from_reader(reader),
             Self::Bounded(engine) => engine.process_transactions_from_reader(reader),
             Self::Concurrent(engine) => engine.process_transactions_from_reader(reader),
+            Self::ConcurrentMultiEngine(engine) => engine.process_transactions_from_reader(reader),
         }
     }
 
@@ -212,6 +222,7 @@ impl PaymentsEngine {
             Self::Standard(engine) => engine.write_accounts_csv(writer),
             Self::Bounded(engine) => engine.write_accounts_csv(writer),
             Self::Concurrent(engine) => engine.write_accounts_csv(writer),
+            Self::ConcurrentMultiEngine(engine) => engine.write_accounts_csv(writer),
         }
     }
 
@@ -221,6 +232,7 @@ impl PaymentsEngine {
             Self::Standard(engine) => engine.get_engine_info(),
             Self::Bounded(engine) => engine.get_engine_info(),
             Self::Concurrent(engine) => engine.get_engine_info(),
+            Self::ConcurrentMultiEngine(engine) => engine.get_engine_info(),
         }
     }
 }
@@ -263,7 +275,7 @@ mod tests {
 
     #[test]
     fn test_concurrent_engine() {
-        let engine = PaymentsEngine::new(EngineConfig::concurrent(100, 100, 1000));
+        let engine = PaymentsEngine::new(EngineConfig::concurrent());
         let info = engine.get_engine_info();
         assert_eq!(info.engine_type, "Concurrent");
         assert!(info.memory_bounded);

@@ -106,6 +106,7 @@ fn main() {
         args.max_tx_ids,
         args.memory_limit_mb,
     );
+
     let mut engine = PaymentsEngine::new(config);
 
     let engine_info = engine.get_engine_info();

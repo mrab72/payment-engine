@@ -1,6 +1,7 @@
 use crate::account::ClientId;
 use rust_decimal::Decimal;
 use serde::Deserialize;
+use derive_more::Display;
 
 pub type Amount = Decimal;
 
@@ -8,7 +9,7 @@ pub type TxId = u32;
 /// Transaction types supported by the payment engine.
 /// The `serde` attribute ensures that the enum variants are deserialized
 /// from lowercase strings in the input data.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Display)]
 #[serde(rename_all = "lowercase")]
 pub enum TransactionType {
     /// A deposit transaction.
@@ -27,7 +28,8 @@ pub enum TransactionType {
     Chargeback,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Display)]
+#[display("Transaction {{ type: {}, client: {}, tx: {}, amount: {:?} }}", tx_type, client, tx, amount)]
 pub struct Transaction {
     /// The type of transaction.
     #[serde(rename = "type")]

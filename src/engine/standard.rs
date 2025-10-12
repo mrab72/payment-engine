@@ -12,14 +12,14 @@ use crate::transaction::{StoredTransaction, Transaction, TransactionType, TxId};
 #[derive(Debug, Clone, Default)]
 pub struct StandardEngine {
     /// Mapping of client IDs to their accounts.
-    accounts: HashMap<ClientId, Account>,
+    pub accounts: HashMap<ClientId, Account>,
 
     /// Record of disputable transactions (deposits/withdrawals) keyed by transaction ID.
     /// Only stores transactions that can potentially be disputed.
-    disputable_transactions: HashMap<TxId, StoredTransaction>,
+    pub disputable_transactions: HashMap<TxId, StoredTransaction>,
 
     /// Set of all processed transaction IDs to prevent duplicates.
-    processed_tx_ids: HashSet<TxId>,
+    pub processed_tx_ids: HashSet<TxId>,
 }
 
 impl StandardEngine {
@@ -79,6 +79,7 @@ impl StandardEngine {
         Ok(())
     }
 
+    // ToDo: Wrong behaviour! Withdrawel should not be disputable!
     fn process_withdrawal(&mut self, transaction: &Transaction) -> Result<(), PaymentsError> {
         let amount = transaction.amount.ok_or(PaymentsError::InvalidTransaction(
             "Withdrawal transaction must have an amount".to_string(),
@@ -90,7 +91,7 @@ impl StandardEngine {
         }
         if self.processed_tx_ids.contains(&transaction.tx) {
             return Err(PaymentsError::InvalidTransaction(format!(
-                "Transaction ID {} already exists",
+                "Transaction ID {} already exists.",
                 transaction.tx
             )));
         }
@@ -223,9 +224,9 @@ impl StandardEngine {
             };
 
             if let Err(e) = self.process_transaction(&transaction) {
-                log::error!("Failed to process transaction {:?}: {}", transaction, e);
+                log::error!("Failed to process transaction {transaction}: {e}");
             } else {
-                log::debug!("Successfully processed transaction: {:?}", transaction);
+                log::debug!("Successfully processed transaction: {transaction}");
             }
         }
         Ok(())
